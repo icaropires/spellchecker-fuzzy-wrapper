@@ -9,15 +9,24 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/sajari/fuzzy"
 )
 
-func main() {
-	const TokensArgsIdx int = 1
-	const CorpusArgsIdx int = 2
+// WordsByRoutine is the number of words processed by each go routine
+const WordsByRoutine int = 100
 
+// Meaning of indexes from Args
+const (
+	_ = iota
+	TokensArgsIdx
+	CorpusArgsIdx
+)
+
+func main() {
 	if len(os.Args) < 3 {
 		log.Fatal("Wrong Usage.\nUsage syntax: ./spellchecker [tokens_string] [corpus_string]\nSeparate words with spaces")
 	}
@@ -33,11 +42,38 @@ func main() {
 
 	tokens := strings.Split(os.Args[TokensArgsIdx], " ")
 
-	// Print like json, for easy loading in python code
 	corrections := make(map[string]string)
-	for _, token := range tokens {
-		corrections[token] = model.SpellCheck(token)
+
+	var wg sync.WaitGroup
+	processWords := func(words []string) {
+		defer wg.Done()
+
+		// Print like json, for easy loading in python code
+		for _, token := range tokens {
+			corrections[token] = model.SpellCheck(token) // Side effects
+		}
 	}
+
+	numRoutines := runtime.NumCPU()
+	wordsByRoutine := len(tokens) / numRoutines
+	if runtime.NumCPU() > len(tokens) {
+		numRoutines = len(tokens)
+		wordsByRoutine = 1
+	}
+
+	for i := 0; i < numRoutines; i++ {
+		wg.Add(1)
+
+		step := i * wordsByRoutine
+
+		if i != numRoutines-1 {
+			go processWords(tokens[step : step+wordsByRoutine])
+		} else {
+			go processWords(tokens[step:])
+		}
+	}
+
+	wg.Wait()
 
 	correctionsDict, err := json.Marshal(corrections)
 	if err != nil {
