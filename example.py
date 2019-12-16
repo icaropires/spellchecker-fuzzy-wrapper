@@ -4,16 +4,41 @@ import pickle
 from typing import Iterable, Dict, Tuple, List
 
 
-def get_corrections(tokens : str, vocab : str) -> Tuple[Dict[str,str], List[str]]:
+TOKENS_FILE = "tokens.txt"
+VOCAB_FILE = "vocabulary.txt"
+CORRECTED_TOKENS_PATH = "corrections.pkl"
+
+
+def get_corrections(tokens_file : str, vocab_file : str) -> Tuple[Dict[str,str], List[str]]:
+    depth = 2  # More, slower, more false positives, more detailed analysis
+
     # Spellcheck bin must be at same folder
     popen = subprocess.Popen(
-        ("./spellchecker", tokens, vocab),
+        ("./spellchecker", str(depth), tokens_file, vocab_file),
         stdout=subprocess.PIPE
     )
-    popen.wait()
 
-    output = popen.stdout.read().decode('utf-8').strip()
-    all_corrections = json.loads(output)
+    dump = ''
+    last_processed = ''
+    loading, li = ('/', '-', '\\', '|'), 0
+    print('Generating corrections:')
+    while True:
+        line = popen.stdout.readline().decode('utf-8').strip()
+
+        if not line and popen.poll() is not None:
+            break
+
+        if line:
+            dump += line
+            last_processed = line[1].upper()
+
+            if ord(last_processed) >= 65 or ord(last_processed) <= 90:
+                li = (li + 1)%len(loading)
+                print(f'  Processing words with: {last_processed} {loading[li]}',
+                      end='\r')
+    print()
+
+    all_corrections = json.loads(dump)
 
     corrections, unkowns = dict(), list()
     for token, correction in all_corrections.items():
@@ -29,26 +54,25 @@ def correct_string(tokens : Iterable[str], corrections_dict : Dict[str, str]) ->
     return ' '.join(corrections_dict.get(t, '') for t in tokens)
 
 
-def load_pickle(path : str) -> str:
-    vocab = None
-    with open(path, 'rb') as vocab_file:
-        vocab_iterable = pickle.load(vocab_file)[:500]  # Problem with args size limit
-        vocab = ' '.join(vocab_iterable)
+corrections, unkowns = get_corrections(TOKENS_FILE, VOCAB_FILE)
 
-    return vocab
+tokens = None
+with open(TOKENS_FILE, 'r') as tf:
+    tokens = tf.readlines()
 
+corrected = correct_string(tokens, corrections)
 
-tokens = load_pickle('tokens.pkl')
-vocab = load_pickle('vocabulary.pkl')
+with open(CORRECTED_TOKENS_PATH, 'wb') as corrected_file: 
+    pickle.dump(corrections, corrected_file)
 
-corrections, unkowns = get_corrections((tokens), vocab)
-correct_string(tokens.split(), corrections)
+print(f'Corrected string: {corrected}')
+print(f'Corrected tokens saved to {CORRECTED_TOKENS_PATH}:', corrected)
 
-corrected = correct_string(tokens.split(), corrections)
-
-print('Corrected output:', corrected)
-
+unkowns_str = "\n".join(f'  - {u}' for u in unkowns if u)
 if unkowns:
     print("Tokens excluded for not being recognized:",
-          "\n".join(f'  - {u}' for u in unkowns),
+          unkowns_str,
            sep='\n')
+
+with open('unkowns.txt', 'w') as f:
+    f.write(unkowns_str)

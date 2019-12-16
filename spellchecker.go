@@ -5,80 +5,72 @@ Not using files for making easier the use thorugh another source code written in
 package main
 
 import (
-	"encoding/json"
+	//	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
-	"runtime"
+	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/sajari/fuzzy"
 )
 
-// WordsByRoutine is the number of words processed by each go routine
-const WordsByRoutine int = 100
+// ModelFile is the name of the file which is the spell model
+const ModelFile string = "spell_model.json"
 
 // Meaning of indexes from Args
 const (
 	_ = iota
+	DepthArgsIdx
 	TokensArgsIdx
-	CorpusArgsIdx
+	VocabularyArgsIdx
 )
 
 func main() {
 	if len(os.Args) < 3 {
-		log.Fatal("Wrong Usage.\nUsage syntax: ./spellchecker [tokens_string] [corpus_string]\nSeparate words with spaces")
+		log.Fatal("Wrong Usage.\nUsage syntax: ./spellchecker [DepthArgsIdx] [tokens_file] [vocabulary_file]\nSeparate words with spaces")
 	}
 
-	corpus := strings.Split(os.Args[CorpusArgsIdx], " ")
-
-	model := fuzzy.NewModel()
-
-	model.SetThreshold(1)
-	model.SetDepth(5)
-
-	model.Train(corpus)
-
-	tokens := strings.Split(os.Args[TokensArgsIdx], " ")
-
-	corrections := make(map[string]string)
-
-	var wg sync.WaitGroup
-	processWords := func(words []string) {
-		defer wg.Done()
-
-		// Print like json, for easy loading in python code
-		for _, token := range tokens {
-			corrections[token] = model.SpellCheck(token) // Side effects
-		}
-	}
-
-	numRoutines := runtime.NumCPU()
-	wordsByRoutine := len(tokens) / numRoutines
-	if runtime.NumCPU() > len(tokens) {
-		numRoutines = len(tokens)
-		wordsByRoutine = 1
-	}
-
-	for i := 0; i < numRoutines; i++ {
-		wg.Add(1)
-
-		step := i * wordsByRoutine
-
-		if i != numRoutines-1 {
-			go processWords(tokens[step : step+wordsByRoutine])
-		} else {
-			go processWords(tokens[step:])
-		}
-	}
-
-	wg.Wait()
-
-	correctionsDict, err := json.Marshal(corrections)
+	vocabularyTxt, err := ioutil.ReadFile(os.Args[VocabularyArgsIdx])
 	if err != nil {
 		log.Fatal(err)
 	}
+	vocabulary := strings.Split(string(vocabularyTxt), "\n")
 
-	fmt.Println(string(correctionsDict))
+	model, err := fuzzy.Load(ModelFile)
+
+	if err != nil {
+		model = fuzzy.NewModel()
+
+		model.SetThreshold(1)
+
+		depth, err := strconv.Atoi(os.Args[DepthArgsIdx])
+		if err != nil {
+			log.Fatal(err)
+		}
+		model.SetDepth(depth)
+
+		fmt.Println(vocabulary[0])
+		model.Train(vocabulary)
+
+		model.SaveLight(ModelFile)
+	}
+
+	tokensTxt, err := ioutil.ReadFile(os.Args[TokensArgsIdx])
+	if err != nil {
+		log.Fatal(err)
+	}
+	tokens := strings.Split(string(tokensTxt), "\n")
+
+	fmt.Printf("{") // Open json
+	// Print like json, for easy loading in python code
+	for i, token := range tokens {
+		fmt.Printf("\"%s\": \"%s\"", token, model.SpellCheck(token)) // Json key: value
+
+		if i != len(tokens)-1 {
+			fmt.Printf(",\n")
+		}
+	}
+	fmt.Printf("}\n") // Close json
 }

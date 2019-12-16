@@ -53,7 +53,7 @@ words = get_words(content)
 text = ' '.join(set(map(clean, words)))
 words = apply_preprocessing(text).split()
 
-vocabulary_path = 'vocabulary.pkl'
-with open(vocabulary_path, 'wb') as vocabulary_file:
-    pickle.dump(words, vocabulary_file)
+vocabulary_path = 'vocabulary.txt'
+with open(vocabulary_path, 'w') as vocabulary_file:
+    vocabulary_file.write('\n'.join(words))
 print(f'Vocabulary saved to {vocabulary_path}!')
