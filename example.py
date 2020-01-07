@@ -1,3 +1,4 @@
+import re
 import subprocess
 import json
 import pickle
@@ -21,6 +22,8 @@ def get_corrections(tokens_file: str, vocab_file: str) -> Tuple[Dict[str, str], 
     dump = ''
     last_processed = ''
     loading, li = ('/', '-', '\\', '|'), 0
+    log_pat = re.compile(r'^\[[A-Z]+\]')
+
     print('Generating corrections:')
     while True:
         line = popen.stdout.readline().decode('utf-8').strip()
@@ -28,7 +31,9 @@ def get_corrections(tokens_file: str, vocab_file: str) -> Tuple[Dict[str, str], 
         if not line and popen.poll() is not None:
             break
 
-        if line:
+        if log_pat.match(line):
+            print(line)
+        elif line:
             dump += line
             last_processed = line[1].upper()
 

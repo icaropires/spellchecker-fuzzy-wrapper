@@ -51,7 +51,9 @@ func main() {
 		}
 		model.SetDepth(depth)
 
+		fmt.Println("[INFO] No model found. Training...")
 		model.Train(vocabulary)
+		fmt.Printf("[INFO] Model trained and saved to %s!\n", ModelFile)
 
 		model.SaveLight(ModelFile)
 	}
