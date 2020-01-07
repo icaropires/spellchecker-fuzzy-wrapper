@@ -4,6 +4,8 @@ import json
 import pickle
 from typing import Iterable, Dict, Tuple, List
 
+from tqdm import tqdm
+
 
 TOKENS_FILE = "tokens.txt"
 VOCAB_FILE = "vocabulary.txt"
@@ -20,12 +22,13 @@ def run_spellchecker(tokens_file, vocab_file):
         stdout=subprocess.PIPE
     )
 
-    dump = ''
-    last_processed = ''
-    loading, li = ('/', '-', '\\', '|'), 0
-    log_pat = re.compile(r'^\[[A-Z]+\]')
+    dumps = list()
+    pbar = None
 
-    print('Generating corrections:')
+    log_pat = re.compile(r'^\[[A-Z]+\]')
+    total_string_start = "Total of words to be corrected = "
+
+    print('Spellchecker outputs and progress:')
     while True:
         line = process.stdout.readline().decode('utf-8').strip()
 
@@ -33,22 +36,24 @@ def run_spellchecker(tokens_file, vocab_file):
             break
 
         if log_pat.match(line):
-            print(line)
+            print(f'  {line}')
+
+            if total_string_start in line.strip():
+                total = int(line.split('=')[-1].strip())
+                pbar = tqdm(total=total)
         elif line:
-            dump += line
-            last_processed = line[1]
+            dumps.append(line)
 
-            # Had some problems with, this is the reason of first condition
-            if len(last_processed) == 1 and last_processed.isalpha():
-                last_processed = last_processed.upper()
-                li = (li + 1) % len(loading)
-                print(
-                  f'  Processing words with: {last_processed} {loading[li]}',
-                  end='\r'
-                )
-    print()
+            if line.strip() not in ('{', '}'):
+                if pbar is not None:
+                    pbar.update(1)
+                else:
+                    print('.', end='')
 
-    return dump
+    if pbar is not None:
+        pbar.close()
+
+    return ''.join(dumps)
 
 
 def get_corrections(tokens_file: str, vocab_file: str) -> Tuple[Dict[str, str], List[str]]:
@@ -89,17 +94,19 @@ with open(TOKENS_FILE, 'r') as tf:
 
 corrected = correct_string(tokens, corrections)
 
+print("\nFinished! Saving results...")
 with open(CORRECTED_TOKENS_FILE, 'wb') as corrected_file:
     pickle.dump(corrections, corrected_file)
-
-print(f'Corrected string: {corrected}')
-print(f'Corrected tokens saved to {CORRECTED_TOKENS_FILE}:', corrected)
+print(f"Corrections dict object saved to '{CORRECTED_TOKENS_FILE}' !")
 
 unkowns_str = "\n".join(f'  - {u}' for u in unkowns if u)
-if unkowns:
-    print("Tokens excluded for not being recognized:",
-          unkowns_str,
-          sep='\n')
 
-with open('unknowns.txt', 'w') as f:
+# print(f'Corrected string: {corrected}')
+# if unkowns:
+#     print("Tokens excluded for not being recognized:", unkowns_str, sep='\n')
+
+unkowns_filename = 'unknowns.txt'
+with open(unkowns_filename, 'w') as f:
     f.write(unkowns_str)
+
+print(f"Words that could not be corrected saved to '{unkowns_filename}' !")

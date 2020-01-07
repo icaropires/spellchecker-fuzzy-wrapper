@@ -38,6 +38,7 @@ func main() {
 	}
 	vocabulary := strings.Split(string(vocabularyTxt), "\n")
 
+	fmt.Println("[INFO] Loading Model...")
 	model, err := fuzzy.Load(ModelFile)
 
 	if err != nil {
@@ -53,9 +54,10 @@ func main() {
 
 		fmt.Println("[INFO] No model found. Training...")
 		model.Train(vocabulary)
-		fmt.Printf("[INFO] Model trained and saved to %s!\n", ModelFile)
+		fmt.Println("[INFO] Model trained!")
 
 		model.SaveLight(ModelFile)
+		fmt.Printf("[INFO] Model saved to %s!\n", ModelFile)
 	}
 
 	tokensTxt, err := ioutil.ReadFile(os.Args[TokensArgsIdx])
@@ -63,6 +65,8 @@ func main() {
 		log.Fatal(err)
 	}
 	tokens := strings.Split(string(tokensTxt), "\n")
+
+	fmt.Printf("[INFO] Total of words to be corrected = %d\n", len(tokens)-1)
 
 	fmt.Printf("{") // Open json
 	// Print like json, for easy loading in python code
