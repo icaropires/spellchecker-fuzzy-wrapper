@@ -51,7 +51,6 @@ func main() {
 		}
 		model.SetDepth(depth)
 
-		fmt.Println(vocabulary[0])
 		model.Train(vocabulary)
 
 		model.SaveLight(ModelFile)
