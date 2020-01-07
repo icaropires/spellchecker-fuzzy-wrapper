@@ -7,10 +7,23 @@ from pre_processing import CorpusHandler
 
 
 def get_words(text: str) -> List[str]:
-    text = text.lower()
-    text = CorpusHandler.remove_small_big_words(text)
+    fs = [
+      'to_lower',
 
-    return CorpusHandler.tokenize(text)
+      'remove_non_pt_chars',
+      'remove_punctuations',
+      'remove_numbers',
+
+      'remove_extra_spaces',
+      'remove_small_big_words',
+
+      'tokenize'
+    ]
+
+    for f in fs:
+        text = getattr(CorpusHandler, f)(text)
+
+    return text
 
 
 if __name__ == '__main__':
