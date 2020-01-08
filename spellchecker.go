@@ -19,18 +19,12 @@ import (
 // ModelFile is the name of the file which is the spell model
 const ModelFile string = "spell_model.json"
 
-// Meaning of indexes from Args
-const (
-	_ = iota
-	DepthArgsIdx
-	TokensArgsIdx
-	VocabularyArgsIdx
-)
-
-func main() {
-	if len(os.Args) < 3 {
-		log.Fatal("Wrong Usage.\nUsage syntax: ./spellchecker [DepthArgsIdx] [tokens_file] [vocabulary_file]\nSeparate words with spaces")
-	}
+func trainModel() {
+	const (
+		_ = iota + 1
+		DepthArgsIdx
+		VocabularyArgsIdx
+	)
 
 	vocabularyTxt, err := ioutil.ReadFile(os.Args[VocabularyArgsIdx])
 	if err != nil {
@@ -38,35 +32,51 @@ func main() {
 	}
 	vocabulary := strings.Split(string(vocabularyTxt), "\n")
 
-	fmt.Println("[INFO] Loading Model...")
-	model, err := fuzzy.Load(ModelFile)
+	model := fuzzy.NewModel()
+	model.SetThreshold(1)
 
+	depth, err := strconv.Atoi(os.Args[DepthArgsIdx])
 	if err != nil {
-		model = fuzzy.NewModel()
+		log.Fatal(err)
+	}
+	model.SetDepth(depth)
 
-		model.SetThreshold(1)
+	fmt.Println("[INFO] Training model...")
+	model.Train(vocabulary)
+	fmt.Println("[INFO] Model trained!")
 
-		depth, err := strconv.Atoi(os.Args[DepthArgsIdx])
-		if err != nil {
-			log.Fatal(err)
+	fmt.Println("[INFO] Saving model...")
+	model.SaveLight(ModelFile)
+	fmt.Printf("[INFO] Model saved to '%s'!\n", ModelFile)
+}
+
+func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "train" {
+		if len(os.Args) < 3 {
+			log.Fatal("Wrong Usage. Example: ./spellchecker train [depth of search] [vocabulary]")
 		}
-		model.SetDepth(depth)
 
-		fmt.Println("[INFO] No model found. Training...")
-		model.Train(vocabulary)
-		fmt.Println("[INFO] Model trained!")
-
-		model.SaveLight(ModelFile)
-		fmt.Printf("[INFO] Model saved to %s!\n", ModelFile)
+		trainModel()
+		os.Exit(0)
+	} else if len(os.Args) < 2 {
+		log.Fatal("Wrong Usage.\nUsage syntax: ./spellchecker [tokens file]")
 	}
 
+	fmt.Println("[INFO] Loading Model...")
+
+	model, err := fuzzy.Load(ModelFile)
+	if err != nil {
+		log.Fatal("Model not trained. Train it first with: ./spellchecker train [depth of search] [vocabulary]")
+	}
+
+	TokensArgsIdx := 1
 	tokensTxt, err := ioutil.ReadFile(os.Args[TokensArgsIdx])
 	if err != nil {
 		log.Fatal(err)
 	}
 	tokens := strings.Split(string(tokensTxt), "\n")
 
-	fmt.Printf("[INFO] Total of words to be corrected = %d\n", len(tokens)-1)
+	fmt.Printf("[INFO] Total of words to be corrected = %d\n", len(tokens))
 
 	fmt.Printf("{") // Open json
 	// Print like json, for easy loading in python code
