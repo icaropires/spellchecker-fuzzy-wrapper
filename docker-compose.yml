@@ -1,0 +1,13 @@
+version: '3.7'
+
+services:
+  spellchecker:
+    build: .
+    volumes:
+        # The file of the model, must a file (not a folder) and must exist
+        - "./spell_model.json:/spellchecker/spell_model.json"
+    environment:
+      PORT: "8080"
+      MAX_JOBS: "10"
+    ports:
+      - "8080:8080"
