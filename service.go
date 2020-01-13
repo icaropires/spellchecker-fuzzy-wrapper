@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -38,9 +39,9 @@ const ModelFile string = "spell_model.json"
 
 const (
 	maxJobsEnv     = "MAX_JOBS"
-	maxJobsDefault = 10
 	portEnv        = "PORT"
 	portDefault    = "8080"
+	maxJobsDefault = 10
 )
 
 func trainModel() {
@@ -96,7 +97,10 @@ func (c *Checker) get(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(path)
 
 	if result, ok := c.results[id]; ok {
-		fmt.Fprintf(w, result)
+		w.Header().Add("Content-Type", "text/plain; charset=latin-1")
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, result)
+
 		log.Printf("Result \"%d\" got from database", id)
 		delete(c.results, id)
 	} else {
@@ -128,7 +132,7 @@ func (c *Checker) post(w http.ResponseWriter, r *http.Request) {
 	c.tasks <- task
 
 	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "Your request \"%d\" will be processed. Soon get your result at \"%s/%d\"", task.id, r.Host, task.id)
+	fmt.Fprintf(w, "Your request \"%d\" will be processed. Soon get your result at \"http://%s/%d\"", task.id, r.Host, task.id)
 
 	log.Printf("Received request %d from %s", task.id, r.RemoteAddr)
 }
