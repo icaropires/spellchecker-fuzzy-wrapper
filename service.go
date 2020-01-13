@@ -5,11 +5,10 @@ Not using files for making easier the use thorugh another source code written in
 package main
 
 import (
-	"net/http"
-	//	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -18,18 +17,20 @@ import (
 	"github.com/sajari/fuzzy"
 )
 
-type Request struct {
+// Tasks which are words to correct
+type Tasks struct {
 	id        int
 	toCorrect string
 }
 
+// Checker will hold information of the main flow the application
 type Checker struct {
 	last       int
-	requests   chan Request
+	tasks      chan Tasks
 	results    map[int]string
 	model      *fuzzy.Model
-	muxRequest sync.Mutex
-	muxResult  sync.Mutex
+	muxTasks   sync.Mutex
+	muxResults sync.Mutex
 }
 
 // ModelFile is the name of the file which is the spell model
@@ -57,31 +58,24 @@ func trainModel() {
 	}
 	model.SetDepth(depth)
 
-	fmt.Println("[INFO] Training model...")
+	log.Println("Training model...")
 	model.Train(vocabulary)
-	fmt.Println("[INFO] Model trained!")
+	log.Println("Model trained!")
 
-	fmt.Println("[INFO] Saving model...")
+	log.Println("Saving model...")
 	model.SaveLight(ModelFile)
-	fmt.Printf("[INFO] Model saved to '%s'!\n", ModelFile)
+	log.Printf("Model saved to '%s'!\n", ModelFile)
 }
 
-func (c *Checker) check(s string) string {
-	tokens := strings.Split(s, "\n")
-
-	fmt.Printf("[INFO] Total of words to be corrected = %d\n", len(tokens))
-
+func (c *Checker) check(tokens []string) string {
 	result := ""
 	result += "{" // Open json
 	for i, token := range tokens {
-		var aux string
-		fmt.Sprintf(aux, "\"%s\": \"%s\"", token, c.model.SpellCheck(token)) // Json key: value
+		result += fmt.Sprintf("\"%s\": \"%s\"", token, c.model.SpellCheck(token)) // Json "key: value"
 
 		if i != len(tokens)-1 {
-			aux += ",\n"
+			result += ",\n"
 		}
-
-		result += aux
 	}
 	result += "}" // Close json
 
@@ -89,33 +83,45 @@ func (c *Checker) check(s string) string {
 }
 
 func (c *Checker) get(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Hey get")
+	c.muxResults.Lock()
+	path := r.URL.Path[1:]
+	id, _ := strconv.Atoi(path)
+
+	if result, ok := c.results[id]; ok {
+		fmt.Fprintf(w, result)
+		log.Printf("Result \"%d\" got from database", id)
+		delete(c.results, id)
+	} else {
+		log.Printf("\"%s\" tried to get unknown result \"%s\"", r.RemoteAddr, path)
+		http.Error(w, "Result not found on database, maybe is processing yet.", http.StatusNotFound)
+	}
+	c.muxResults.Unlock()
 }
 
 func (c *Checker) post(w http.ResponseWriter, r *http.Request) {
-	request := Request{}
+	task := Tasks{}
 
 	body, _ := ioutil.ReadAll(r.Body)
-	request.toCorrect = string(body)
+	task.toCorrect = string(body)
 
-	if request.toCorrect == "" {
-		log.Printf("Invalid request received from \"%s\"", r.RemoteAddr)
+	if task.toCorrect == "" {
+		log.Printf("Invalid task received from \"%s\"", r.RemoteAddr)
 		http.Error(w, "Not a valid string received", http.StatusBadRequest)
 
 		return
 	}
 
-	c.muxRequest.Lock()
+	c.muxTasks.Lock()
 	c.last++
-	request.id = c.last
-	c.muxRequest.Unlock()
+	task.id = c.last
+	c.muxTasks.Unlock()
 
-	c.requests <- request
+	c.tasks <- task
 
 	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "Your request \"%d\" will be processed. Soon get your result at \"%s/%d\"", request.id, r.Host, request.id)
+	fmt.Fprintf(w, "Your request \"%d\" will be processed. Soon get your result at \"%s/%d\"", task.id, r.Host, task.id)
 
-	log.Printf("Received request %d from %s", request.id, r.RemoteAddr)
+	log.Printf("Received request %d from %s", task.id, r.RemoteAddr)
 }
 
 func main() {
@@ -128,23 +134,19 @@ func main() {
 		os.Exit(0)
 	}
 
-	fmt.Println("[INFO] Loading Model...")
+	log.Println("Loading Model...")
 	model, err := fuzzy.Load(ModelFile)
 	if err != nil {
 		log.Fatal("Model not trained. Train it first with: ./spellchecker train [depth of search] [vocabulary]")
 	}
-	fmt.Println("[INFO] Model loaded!")
+	log.Println("Model loaded!")
 
 	checker := Checker{}
 	checker.model = model
-	checker.requests = make(chan Request, 10)
+	checker.tasks = make(chan Tasks, 10)
+	checker.results = make(map[int]string)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.Error(w, "404 not found.", http.StatusNotFound)
-			return
-		}
-
 		switch r.Method {
 		case "GET":
 			checker.get(w, r)
@@ -154,6 +156,28 @@ func main() {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	})
+
+	go func() {
+		for {
+			task := <-checker.tasks
+
+			log.Printf("Correcting result \"%d\"...", task.id)
+
+			resultChan := make(chan string)
+			go func() {
+				tokens := strings.Split(task.toCorrect, "\n")
+				log.Printf("Total of words from task \"%d\" = %d\n", task.id, len(tokens))
+				resultChan <- checker.check(tokens)
+			}()
+			result := <-resultChan
+
+			checker.muxResults.Lock()
+			checker.results[task.id] = result
+			checker.muxResults.Unlock()
+
+			log.Printf("Saved result \"%d\"!", task.id)
+		}
+	}()
 
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Fatal(err)
