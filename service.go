@@ -36,6 +36,13 @@ type Checker struct {
 // ModelFile is the name of the file which is the spell model
 const ModelFile string = "spell_model.json"
 
+const (
+	maxJobsEnv     = "MAX_JOBS"
+	maxJobsDefault = 10
+	portEnv        = "PORT"
+	portDefault    = "8080"
+)
+
 func trainModel() {
 	const (
 		_ = iota + 1
@@ -84,6 +91,7 @@ func (c *Checker) check(tokens []string) string {
 
 func (c *Checker) get(w http.ResponseWriter, r *http.Request) {
 	c.muxResults.Lock()
+
 	path := r.URL.Path[1:]
 	id, _ := strconv.Atoi(path)
 
@@ -95,6 +103,7 @@ func (c *Checker) get(w http.ResponseWriter, r *http.Request) {
 		log.Printf("\"%s\" tried to get unknown result \"%s\"", r.RemoteAddr, path)
 		http.Error(w, "Result not found on database, maybe is processing yet.", http.StatusNotFound)
 	}
+
 	c.muxResults.Unlock()
 }
 
@@ -124,6 +133,27 @@ func (c *Checker) post(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received request %d from %s", task.id, r.RemoteAddr)
 }
 
+func getChecker(model *fuzzy.Model) *Checker {
+	checker := Checker{}
+	checker.model = model
+
+	maxJobs := os.Getenv(maxJobsEnv)
+	if maxJobs == "" {
+		os.Setenv(maxJobsEnv, strconv.Itoa(maxJobsDefault))
+		maxJobs = os.Getenv(maxJobsEnv)
+	}
+
+	maxJobsInt, err := strconv.Atoi(maxJobs)
+	if err != nil {
+		log.Fatalf("Invalid port selected: \"%s\"", maxJobs)
+	}
+
+	checker.tasks = make(chan Tasks, maxJobsInt)
+	checker.results = make(map[int]string)
+
+	return &checker
+}
+
 func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "train" {
 		if len(os.Args) < 3 {
@@ -141,21 +171,7 @@ func main() {
 	}
 	log.Println("Model loaded!")
 
-	checker := Checker{}
-	checker.model = model
-	checker.tasks = make(chan Tasks, 10)
-	checker.results = make(map[int]string)
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case "GET":
-			checker.get(w, r)
-		case "POST":
-			checker.post(w, r)
-		default:
-			w.WriteHeader(http.StatusMethodNotAllowed)
-		}
-	})
+	checker := getChecker(model)
 
 	go func() {
 		for {
@@ -179,7 +195,23 @@ func main() {
 		}
 	}()
 
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "GET":
+			checker.get(w, r)
+		case "POST":
+			checker.post(w, r)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+
+	port := os.Getenv(portEnv)
+	if port == "" {
+		os.Setenv(portEnv, portDefault)
+		port = os.Getenv(portEnv)
+	}
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal(err)
 	}
 }
