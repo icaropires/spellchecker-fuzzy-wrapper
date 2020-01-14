@@ -41,7 +41,7 @@ const (
 	maxJobsEnv     = "MAX_JOBS"
 	portEnv        = "PORT"
 	portDefault    = "8080"
-	maxJobsDefault = 10
+	maxJobsDefault = 4
 )
 
 func trainModel() {
@@ -77,6 +77,7 @@ func trainModel() {
 
 func (c *Checker) check(tokens []string) string {
 	result := ""
+
 	result += "{" // Open json
 	for i, token := range tokens {
 		result += fmt.Sprintf("\"%s\": \"%s\"", token, c.model.SpellCheck(token)) // Json "key: value"
@@ -141,6 +142,13 @@ func getChecker(model *fuzzy.Model) *Checker {
 	checker := Checker{}
 	checker.model = model
 
+	checker.tasks = make(chan Tasks)
+	checker.results = make(map[int]string)
+
+	return &checker
+}
+
+func getMaxJobs() int {
 	maxJobs := os.Getenv(maxJobsEnv)
 	if maxJobs == "" {
 		os.Setenv(maxJobsEnv, strconv.Itoa(maxJobsDefault))
@@ -152,10 +160,7 @@ func getChecker(model *fuzzy.Model) *Checker {
 		log.Fatalf("Invalid port selected: \"%s\"", maxJobs)
 	}
 
-	checker.tasks = make(chan Tasks, maxJobsInt)
-	checker.results = make(map[int]string)
-
-	return &checker
+	return maxJobsInt
 }
 
 func main() {
@@ -177,25 +182,28 @@ func main() {
 
 	checker := getChecker(model)
 
+	maxJobs := getMaxJobs()
+	limitConcurrentJobsQueue := make(chan int, maxJobs)
+
 	go func() {
 		for {
 			task := <-checker.tasks
+			limitConcurrentJobsQueue <- -1 // Whatever the number
 
-			log.Printf("Correcting result \"%d\"...", task.id)
-
-			resultChan := make(chan string)
 			go func() {
+				log.Printf("Correcting result \"%d\"...", task.id)
+
 				tokens := strings.Split(task.toCorrect, "\n")
 				log.Printf("Total of words from task \"%d\" = %d\n", task.id, len(tokens))
-				resultChan <- checker.check(tokens)
+				result := checker.check(tokens)
+
+				checker.muxResults.Lock()
+				checker.results[task.id] = result
+				checker.muxResults.Unlock()
+
+				log.Printf("Saved result \"%d\"!", task.id)
+				<-limitConcurrentJobsQueue
 			}()
-			result := <-resultChan
-
-			checker.muxResults.Lock()
-			checker.results[task.id] = result
-			checker.muxResults.Unlock()
-
-			log.Printf("Saved result \"%d\"!", task.id)
 		}
 	}()
 
