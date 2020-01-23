@@ -1,0 +1,19 @@
+FROM golang:1.13-alpine3.11 as builder
+
+WORKDIR /spellchecker
+
+COPY rabbit_consumer.go .
+
+RUN apk --no-cache add git \
+    && go get -v "github.com/sajari/fuzzy" \
+    && go get -v "github.com/streadway/amqp" \
+    && go build rabbit_consumer.go
+
+
+FROM alpine:3.11
+
+WORKDIR /spellchecker
+
+COPY --from=builder /spellchecker/rabbit_consumer .
+
+ENTRYPOINT ["/spellchecker/rabbit_consumer"]

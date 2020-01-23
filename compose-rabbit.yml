@@ -1,0 +1,14 @@
+version: '3.7'
+
+services:
+  spellchecker:
+    build:
+        context: .
+        dockerfile: DockerfileRabbit
+    volumes:
+        # The file of the model, must a file (not a folder) and must exist
+        - "./spell_model.json:/spellchecker/spell_model.json"
+    environment:
+      HOST: "10.0.0.105"
+      PORT: ""
+      MAX_JOBS: "1"

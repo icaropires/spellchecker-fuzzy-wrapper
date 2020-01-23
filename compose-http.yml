@@ -2,7 +2,9 @@ version: '3.7'
 
 services:
   spellchecker:
-    build: .
+    build:
+        context: .
+        dockerfile: DockerfileHttp
     volumes:
         # The file of the model, must a file (not a folder) and must exist
         - "./spell_model.json:/spellchecker/spell_model.json"
